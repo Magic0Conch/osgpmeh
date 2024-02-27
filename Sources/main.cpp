@@ -125,7 +125,7 @@ void loadJson(){
 int main(int argc, char** argv){
     // loadJson();
 	// return 0;
-    string osgbFile = "E:\\work\\C++\\jmspmesh\\out\\NNUOSGB.osgb";
+    string osgbFile = "E:\\work\\C++\\jmspmesh\\out\\shitang.osgb";
     osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(osgbFile);
 
     if (!loadedModel) {

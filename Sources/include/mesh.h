@@ -89,6 +89,8 @@ private:
 	bool readPlyVerts(FILE *&inFile);
 	bool readPlyTris(FILE *&inFile);
 	bool readOsgbNode(osg::Node* node);
+
+	int groupStart = 0;
 };
 
 #endif // __mesh_h

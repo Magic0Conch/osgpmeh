@@ -228,9 +228,9 @@ bool Mesh::readOsgbNode(osg::Node* node) {
 				unsigned int ncnt = prset->getNumIndices();
 				for (unsigned int ic = 0; ic * 3 < prset->getNumIndices(); ic++)
 				{
-					unsigned int v1 = prset->index(ic * 3);
-					unsigned int v2 = prset->index(ic * 3 + 1);
-					unsigned int v3 = prset->index(ic * 3 + 2);
+					unsigned int v1 = prset->index(ic * 3) + groupStart;
+					unsigned int v2 = prset->index(ic * 3 + 1) + groupStart;
+					unsigned int v3 = prset->index(ic * 3 + 2) + groupStart;
 					triangle t(this,v1,v2,v3);
 					t.setIndex(_numTriangles);
 					_plist.push_back(t);
@@ -251,7 +251,7 @@ bool Mesh::readOsgbNode(osg::Node* node) {
 			}
         }
     }
-
+	groupStart = _numVerts;
     osg::Group* group = node->asGroup();
     if (group) {
         for (unsigned int i = 0; i < group->getNumChildren(); ++i) {

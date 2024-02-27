@@ -55,7 +55,8 @@ public:
 	void dump(); // print mesh state to cout
 
 	bool writePlyFile(const std::string& filePath) const;
-
+	bool writeOsgbFile(const std::string& filePath) const;
+	bool writeFile(const std::string& filePath) const;
 private:
 	vector<vertex> _vlist; // list of vertices in mesh
 	vector<triangle> _plist; // list of triangles in mesh

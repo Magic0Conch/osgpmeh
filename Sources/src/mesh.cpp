@@ -1,5 +1,6 @@
 
 #include "mesh.h"
+#include "osg/Vec2"
 #include <fstream>
 #include <string>
 
@@ -16,7 +17,7 @@
 #include <osg/Geode>
 #include <osg/Geometry>
 #include "osgDB/ReadFile"
-
+#include <osgDB/WriteFile>
 #include <osg/Group>
 
 
@@ -404,6 +405,60 @@ bool Mesh::writePlyFile(const std::string& filePath) const {
 			outFile << "3 " << v1 << " " << v2 << " " << v3 << std::endl;
 	}
 
+	return true;
+}
+
+bool Mesh::writeOsgbFile(const std::string& filePath) const{
+    osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry;
+
+    osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
+    osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
+    osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
+    for (const auto& vertex : _vlist) {
+		auto xyz = vertex.getXYZ();
+        vertices->push_back(osg::Vec3(xyz.x, xyz.y, xyz.z));
+		auto normal = vertex.getVertNorms();
+		normals->push_back(osg::Vec3(normal.x,normal.y,normal.z));
+		auto uv = vertex.getUV();
+		texcoords->push_back(osg::Vec2(uv.x,uv.y));
+    }
+    geometry->setVertexArray(vertices);
+    geometry->setNormalArray(normals, osg::Array::BIND_PER_VERTEX);
+    geometry->setTexCoordArray(0, texcoords);
+
+    osg::ref_ptr<osg::DrawElementsUInt> triangles = new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES);
+    for (const auto& triangle : _plist) {
+		if(triangle.isActive()){
+			triangles->push_back(triangle.getVert1Index());
+			triangles->push_back(triangle.getVert2Index());
+			triangles->push_back(triangle.getVert3Index());
+		}
+    }
+    geometry->addPrimitiveSet(triangles);
+
+    // 创建 Geode 对象并将 Geometry 添加进去
+    osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+    geode->addDrawable(geometry);
+
+    // 写入 osgb 文件
+    bool success = osgDB::writeNodeFile(*geode, filePath);
+
+    if (success) {
+        std::cout << "Model exported to "<< filePath << std::endl;
+    } else {
+        std::cerr << "Failed to export model." << std::endl;
+    }
+	return true;
+}
+
+bool Mesh::writeFile(const std::string& filePath) const{
+	const string extensionName = getFileExtension(filePath.c_str());
+	if(extensionName == "ply"){
+		writePlyFile(filePath);
+	}
+	else if(extensionName == "osgb"){
+		writeOsgbFile(filePath);
+	}
 	return true;
 }
 

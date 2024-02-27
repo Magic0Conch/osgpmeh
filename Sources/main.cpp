@@ -17,8 +17,11 @@
 #include "osgDB/ReadFile"
 #include <osgViewer/Viewer>
 #include <json11.hpp>
- 
-
+#include <osg/ShapeDrawable>
+#include <osg/Material>
+#include <osg/StateSet>
+#include <osg/LineWidth>
+#include <osg/PolygonMode>
 // Triangle model
 Mesh* g_pMesh = NULL;
 
@@ -116,14 +119,13 @@ void loadJson(){
 			if (!ret) MessageBeep(0);
 		}
 	}
-	g_pProgMesh->getNewMesh().writePlyFile(outputPath);
+	g_pProgMesh->getNewMesh().writeFile(outputPath);
 }
 
 int main(int argc, char** argv){
-    loadJson();
-	return 0;
-    cout<<"Hello"<<endl;
-    string osgbFile = "E:\\work\\Data\\NNU_CIM_DataSet_2024.01.05\\CIM1DataSet\\SyntheticModel\\ExternalData\\terrain+region\\30DEM\\30DEM.osgb";
+    // loadJson();
+	// return 0;
+    string osgbFile = "E:\\work\\C++\\jmspmesh\\out\\NNUOSGB.osgb";
     osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(osgbFile);
 
     if (!loadedModel) {
@@ -132,7 +134,21 @@ int main(int argc, char** argv){
     }
 
     osgViewer::Viewer viewer;
+	osg::ref_ptr<osg::StateSet> stateSet = loadedModel->getOrCreateStateSet();
 
+	osg::ref_ptr<osg::LineWidth> lineWidth = new osg::LineWidth;
+    lineWidth->setWidth(2.0f); // 设置线宽
+    stateSet->setAttributeAndModes(lineWidth, osg::StateAttribute::ON);
+
+	stateSet->setMode(GL_POLYGON_MODE, osg::StateAttribute::ON);
+    stateSet->setAttribute(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE));
+
+	// osg::ref_ptr<osg::StateSet> stateSet = loadedModel;
+    // osg::ref_ptr<osg::PolygonMode> polygonMode = new osg::PolygonMode;
+    // polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE); // 设置线框模式
+    // stateSet->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
+
+    // loadedModel->setStateSet(stateSet);
     viewer.setSceneData(loadedModel);
 
     return viewer.run();

@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <float.h>
+#include <iostream>
 
 #if defined (_MSC_VER) && (_MSC_VER >= 1020)
 #pragma warning(disable:4710) // function not inlined
@@ -477,6 +478,7 @@ void PMesh::buildEdgeCollapseList(Mesh &mesh, const EdgeCost &cost,
 {
 	for (;;)
 	{
+		cerr<<vertSet.size()<<endl;
 		if (0 == vertSet.size())
 		{
 			// we're done

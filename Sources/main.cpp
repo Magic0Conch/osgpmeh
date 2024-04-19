@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <windows.h>		// Header File For Windows
@@ -105,27 +106,75 @@ void loadJson(){
 	//g_pWindow->displayWindowTitle();
 	delete[] inputPathCStr;
 
+
 	for (int i = 0; i < numIterations; i++) {
 		if (g_pProgMesh)
 		{
+			const float triangleRatio = reductionRatio * 0.6;
+			int oriTriangles = g_pProgMesh->numTris();
+			int limitTriangles = max(12, max(triangleRatio * oriTriangles, 0.01*oriTriangles) );
 			const int REDUCE_TRI_PERCENT = reductionRatio * 100;	// when page up/page down, inc/dec # tris by this percent 
+			if(REDUCE_TRI_PERCENT == 0){
+				cout<<"Error! Reduction ratio must greater than 0.01!"<<endl;
+			}
+				
 			const int NUM_PAGEUPDN_INTERVALS = 100 / REDUCE_TRI_PERCENT;
 			int size = (g_pProgMesh->numEdgeCollapses()) / NUM_PAGEUPDN_INTERVALS;
-			if (size == 0) size = 1;
+			if (size == 0) return;
+			
 			bool ret = true;
 			for (int i = 0; ret && i < size; ++i) {
-				ret = g_pProgMesh->collapseEdge();
+				ret = g_pProgMesh->collapseEdge(limitTriangles);
 			}
-			if (!ret) MessageBeep(0);
+			if (!ret) break;
 		}
 	}
 	g_pProgMesh->getNewMesh().writeFile(outputPath);
 }
 
+void processMesh(float reductionRatio, int numIterations, std::string inputPath, std::string outputPath){
+	char* inputPathCStr = new char[inputPath.length() + 1];
+	std::strcpy(inputPathCStr, inputPath.c_str());
+	g_pMesh = new Mesh(inputPathCStr);
+	std::strcpy(g_filename, inputPathCStr);
+	if (g_pMesh) g_pMesh->Normalize();// center mesh around the origin & shrink to fit
+
+	g_pProgMesh = new PMesh(g_pMesh, g_edgemethod);
+	delete[] inputPathCStr;
+
+	for (int i = 0; i < numIterations; i++) {
+		if (g_pProgMesh){
+			const float triangleRatio = reductionRatio * 0.6;
+			int oriTriangles = g_pProgMesh->numTris();
+			int limitTriangles = max(12, max(triangleRatio * oriTriangles, 0.01*oriTriangles) );
+			const int REDUCE_TRI_PERCENT = reductionRatio * 100;	// when page up/page down, inc/dec # tris by this percent 
+			if(REDUCE_TRI_PERCENT == 0){
+				cout<<"Error! Reduction ratio must greater than 0.01!"<<endl;
+			}
+				
+			const int NUM_PAGEUPDN_INTERVALS = 100 / REDUCE_TRI_PERCENT;
+			int size = (g_pProgMesh->numEdgeCollapses()) / NUM_PAGEUPDN_INTERVALS;
+			if (size == 0) return;
+			
+			bool ret = true;
+			for (int i = 0; ret && i < size; ++i) {
+				ret = g_pProgMesh->collapseEdge(limitTriangles);
+			}
+			if (!ret) break;
+		}
+	}
+	g_pProgMesh->getNewMesh().writeFile(outputPath);
+}
+
+
 int main(int argc, char** argv){
-    // loadJson();
-	// return 0;
-    string osgbFile = "E:\\work\\C++\\jmspmesh\\out\\shitang.osgb";
+	std::string reductionRatio = argv[1];
+	std::string numIterations = argv[2];
+	std::string inputPath = argv[3];
+	std::string outputPath = argv[4];
+    processMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
+	return 0;
+    string osgbFile = "E:\\work\\Data\\out\\zhibei1.osgb";
     osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(osgbFile);
 
     if (!loadedModel) {

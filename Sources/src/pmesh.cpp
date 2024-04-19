@@ -975,7 +975,7 @@ double PMesh::calcQuadricError(double Qsum[4][4], vertex& v, double triArea)
 }
 
 // Collapse an edge (remove one vertex & edge, and possibly some triangles.)
-bool PMesh::collapseEdge()
+bool PMesh::collapseEdge(int limitTriangles)
 {
 	// Iterator always points to next collapse to perform
 	if (_edgeCollapseIter == _edgeCollList.end()) return false; // no more edge collapses in list
@@ -983,6 +983,8 @@ bool PMesh::collapseEdge()
 
 	set<int> affectedVerts; // vertices affected by this edge collapse
 	int v1, v2, v3; // vertex indices
+	auto newSize = _nVisTriangles - ec._trisRemoved.size();
+	if(newSize<limitTriangles)	return false;
 
 	// Remove triangles 
 	set<int>::iterator tripos;

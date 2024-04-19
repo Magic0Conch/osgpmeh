@@ -86,7 +86,7 @@ public:
 	PMesh(Mesh* mesh, EdgeCost ec);
 
 	// Collapse one vertex to another.
-	bool collapseEdge();
+	bool collapseEdge(int limitTriangles);
 
 	// One vertex will be split into two vertices -- this
 	// is the opposite of a collapse

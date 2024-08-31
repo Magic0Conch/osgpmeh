@@ -18,7 +18,6 @@
 #include <osgManipulator/Translate1DDragger>
 #include <osg/ShapeDrawable>
 #include <osg/Geometry>
-#include <osg/Geode>
 #include <osg/LineWidth>
 
 namespace osgManipulator {

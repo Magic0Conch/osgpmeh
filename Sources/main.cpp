@@ -1,204 +1,242 @@
-#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
-#include <windows.h>		// Header File For Windows
-#include <sys/stat.h>
-#include <cstdio>
-#include <fstream>
-#if defined (_MSC_VER) && (_MSC_VER >= 1020)
-#pragma warning(disable:4710) // function not inlined
-#pragma warning(disable:4702) // unreachable code
-#pragma warning(disable:4514) // unreferenced inline function has been removed
-#pragma warning(disable:4786) // disable "identifier was truncated to '255' characters in the browser information" warning in Visual C++ 6*
-#endif
-#include "pmesh.h"
 #include "mesh.h"
-
-
-#include "osgDB/ReadFile"
-#include <osgViewer/Viewer>
-#include <json11.hpp>
-#include <osg/ShapeDrawable>
-#include <osg/Material>
-#include <osg/StateSet>
-#include <osg/LineWidth>
 #include <osg/PolygonMode>
+#include "osg/Geometry"
+#include "osg/PrimitiveSet"
+#include "osgUtil/Optimizer"
+#include "osgUtil/Simplifier"
+#include <osgDB/WriteFile>
+#include <osgDB/ReadFile>
+#include <osgViewer/Viewer>
+#include <osgViewer/ViewerEventHandlers>
 // Triangle model
-Mesh* g_pMesh = NULL;
+bool printVertices = false;
 
-// Progressive Mesh
-PMesh* g_pProgMesh = NULL;
-
-// Edge Collapse Options
-PMesh::EdgeCost g_edgemethod = PMesh::QUADRICTRI;
-// file name
-char g_filename[256] = {'\0'};
-
-void loadJson(){
-	static char szFilter[] = "Json files (*.json)\0*.json\0";
-	OPENFILENAME ofn;
-	char pszFileLocn[256] = { '\0' };
-
-	// Set up OPENFILENAME struct to use commond dialog box for open
-
-	ZeroMemory(&ofn, sizeof(OPENFILENAME));
-	ofn.lStructSize = sizeof(ofn);	// size of struct
-	ofn.hwndOwner = NULL;			// window that owns Dlg
-	ofn.lpstrFilter = szFilter;		// Filter text
-	ofn.lpstrFile = pszFileLocn;		// File name string
-	ofn.nMaxFile = sizeof(pszFileLocn); // size of file name
-	ofn.Flags = OFN_HIDEREADONLY;	// don't display "Read Only"
-	ofn.lpstrDefExt = "Json";		// extension name
-	ofn.lpstrTitle = "Open Input Config File"; // title of dlg box
-
-	// call common dlg control for file open
-	if (!GetOpenFileName(&ofn)) {
-		return;
-	}
-
-	// see if file exists
-	struct stat fileStat;
-	if (stat(ofn.lpstrFile, &fileStat))
-	{
-		char errormsg[1024];
-		sprintf(errormsg, "%s not found.", ofn.lpstrFile);
-		MessageBox(NULL, errormsg, "File Not Found Error", MB_OK | MB_ICONINFORMATION);
-		return;
-	}
-
-	delete g_pMesh;
-	g_pMesh = NULL; // not necessary, but a nice CYA habit
-	delete g_pProgMesh;
-	g_pProgMesh = NULL;
-	
-	string jsonFilePath = ofn.lpstrFile;
-
-    std::ifstream assetJsonFile(jsonFilePath);
-    if(!assetJsonFile){
-        std::cout<<"Open file: " + jsonFilePath + " failed!";
-        assert(0);
+class WireframeToggleHandler : public osgGA::GUIEventHandler {
+public:
+    WireframeToggleHandler(osg::StateSet* stateSet)
+        : _stateSet(stateSet), _wireframe(false) {
+        // 初始化为实色渲染模式
+        _stateSet->setAttributeAndModes(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::FILL));
     }
-    std::stringstream buffer;
-    buffer << assetJsonFile.rdbuf();
-    std::string assetJsonText(buffer.str());
-    
-    std::string errorMessage;
-    auto &&assetJson = json11::Json::parse(assetJsonText,errorMessage);
-    
-	std::string inputPath = assetJson["input_path"].string_value();
-	std::string outputPath = assetJson["output_path"].string_value();
-	int numIterations = assetJson["num_iterations"].int_value();
-	float reductionRatio = assetJson["reduction_ratio"].number_value();
-	
-	char* inputPathCStr = new char[inputPath.length() + 1];
-	std::strcpy(inputPathCStr, inputPath.c_str());
 
-	g_pMesh = new Mesh(inputPathCStr);
-	std::strcpy(g_filename, inputPathCStr);
-	// g_pMesh-> writePlyFile(outputPath);
-	if (g_pMesh) g_pMesh->Normalize();// center mesh around the origin & shrink to fit
+    bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
+        switch (ea.getEventType()) {
+            case osgGA::GUIEventAdapter::KEYDOWN: {
+                if (ea.getKey() == 'w') {
+                    // 切换到线框渲染模式
+                    _wireframe = !_wireframe;
+                    _stateSet->setAttributeAndModes(new osg::PolygonMode(
+                        osg::PolygonMode::FRONT_AND_BACK,
+                        _wireframe ? osg::PolygonMode::LINE : osg::PolygonMode::FILL
+                    ));
+                    return true;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return false;
+    }
 
-	g_pProgMesh = new PMesh(g_pMesh, g_edgemethod);
+private:
+    osg::ref_ptr<osg::StateSet> _stateSet;
+    bool _wireframe;
+};
 
-	// reset the position of the mesh
-	//g_pWindow->resetOrientation();
+void printVertexData(osg::Geometry* geometry) {
+    // 获取顶点数组
+    osg::Vec3Array* vertices = dynamic_cast<osg::Vec3Array*>(geometry->getVertexArray());
+    if (!vertices) {
+        std::cerr << "Error: No vertices found!" << std::endl;
+        return;
+    }
 
-	//g_pWindow->displayWindowTitle();
-	delete[] inputPathCStr;
+    // 获取法线数组
+    osg::Vec3Array* normals = dynamic_cast<osg::Vec3Array*>(geometry->getNormalArray());
+    if (!normals) {
+        std::cerr << "Error: No normals found!" << std::endl;
+    }
 
-
-	for (int i = 0; i < numIterations; i++) {
-		if (g_pProgMesh)
-		{
-			const float triangleRatio = reductionRatio * 0.6;
-			int oriTriangles = g_pProgMesh->numTris();
-			int limitTriangles = max(12, max(triangleRatio * oriTriangles, 0.01*oriTriangles) );
-			const int REDUCE_TRI_PERCENT = reductionRatio * 100;	// when page up/page down, inc/dec # tris by this percent 
-			if(REDUCE_TRI_PERCENT == 0){
-				cout<<"Error! Reduction ratio must greater than 0.01!"<<endl;
-			}
-				
-			const int NUM_PAGEUPDN_INTERVALS = 100 / REDUCE_TRI_PERCENT;
-			int size = (g_pProgMesh->numEdgeCollapses()) / NUM_PAGEUPDN_INTERVALS;
-			if (size == 0) return;
-			
-			bool ret = true;
-			for (int i = 0; ret && i < size; ++i) {
-				ret = g_pProgMesh->collapseEdge(limitTriangles);
-			}
-			if (!ret) break;
-		}
-	}
-	g_pProgMesh->getNewMesh().writeFile(outputPath);
+    // 获取纹理坐标数组
+    osg::Vec2Array* texCoords = dynamic_cast<osg::Vec2Array*>(geometry->getTexCoordArray(0));
+    if (!texCoords) {
+        std::cerr << "Error: No texture coordinates found!" << std::endl;
+    }
+	std::cout << "Vertex data:" << std::endl;
+	for (unsigned int i = 0; i < vertices->size(); ++i) {
+        osg::Vec3 vertex = (*vertices)[i];
+        std::cout << "Vertex " << i << ": (" << vertex.x() << ", " << vertex.y() << ", " << vertex.z() << ")";
+        if (normals) {
+            osg::Vec3 normal = (*normals)[i];
+            std::cout << " Normal: (" << normal.x() << ", " << normal.y() << ", " << normal.z() << ")";
+        }
+        if (texCoords) {
+            osg::Vec2 texCoord = (*texCoords)[i];
+            std::cout << " TexCoord: (" << texCoord.x() << ", " << texCoord.y() << ")";
+        }
+        std::cout << std::endl;
+    }
 }
 
-void processMesh(float reductionRatio, int numIterations, std::string inputPath, std::string outputPath){
-	char* inputPathCStr = new char[inputPath.length() + 1];
-	std::strcpy(inputPathCStr, inputPath.c_str());
-	g_pMesh = new Mesh(inputPathCStr);
-	std::strcpy(g_filename, inputPathCStr);
-	if (g_pMesh) g_pMesh->Normalize();// center mesh around the origin & shrink to fit
+void traverseAndPrintPrimitiveSets(osg::Node* node) {
+    if (!node) return;
 
-	g_pProgMesh = new PMesh(g_pMesh, g_edgemethod);
-	delete[] inputPathCStr;
+    osg::Geode* geode = node->asGeode();
+    if (geode) {
+        for (unsigned int i = 0; i < geode->getNumDrawables(); ++i) {
+            osg::Geometry* geometry = geode->getDrawable(i)->asGeometry();
+            if (geometry) {
+                std::cout << "Geometry found in Geode" << std::endl;
+				printVertexData(geometry);
+                for (unsigned int j = 0; j < geometry->getNumPrimitiveSets(); ++j) {
+                    osg::PrimitiveSet* ps = geometry->getPrimitiveSet(j);
+					
+                    if (dynamic_cast<osg::DrawArrays*>(ps)) {
+                        std::cout << "  PrimitiveSet " << j << " is of type DrawArrays" << std::endl;
+                    } else if (dynamic_cast<osg::DrawElementsUByte*>(ps)) {
+                        std::cout << "  PrimitiveSet " << j << " is of type DrawElementsUByte" << std::endl;
+                    } else if (dynamic_cast<osg::DrawElementsUShort*>(ps)) {
+                        std::cout << "  PrimitiveSet " << j << " is of type DrawElementsUShort" << std::endl;
+                    } else if (dynamic_cast<osg::DrawElementsUInt*>(ps)) {
+                        std::cout << "  PrimitiveSet " << j << " is of type DrawElementsUInt" << std::endl;
+                    } else {
+                        std::cout << "  PrimitiveSet " << j << " is of unknown type" << std::endl;
+                    }
+                }
+		    }
+        }
+    }
 
-	for (int i = 0; i < numIterations; i++) {
-		if (g_pProgMesh){
-			const float triangleRatio = reductionRatio * 0.6;
-			int oriTriangles = g_pProgMesh->numTris();
-			int limitTriangles = max(12, max(triangleRatio * oriTriangles, 0.01*oriTriangles) );
-			const int REDUCE_TRI_PERCENT = reductionRatio * 100;	// when page up/page down, inc/dec # tris by this percent 
-			if(REDUCE_TRI_PERCENT == 0){
-				cout<<"Error! Reduction ratio must greater than 0.01!"<<endl;
-			}
-				
-			const int NUM_PAGEUPDN_INTERVALS = 100 / REDUCE_TRI_PERCENT;
-			int size = (g_pProgMesh->numEdgeCollapses()) / NUM_PAGEUPDN_INTERVALS;
-			if (size == 0) return;
-			
-			bool ret = true;
-			for (int i = 0; ret && i < size; ++i) {
-				ret = g_pProgMesh->collapseEdge(limitTriangles);
-			}
-			if (!ret) break;
-		}
-	}
-	g_pProgMesh->getNewMesh().writeFile(outputPath);
+    osg::Group* group = node->asGroup();
+    if (group) {
+        for (unsigned int i = 0; i < group->getNumChildren(); ++i) {
+            traverseAndPrintPrimitiveSets(group->getChild(i));
+        }
+    }
 }
 
+
+void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath, std::string outputPath){
+	std::cout<<"Input file: "<<inputPath<<std::endl;
+	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(inputPath);
+    if(node == nullptr){
+        std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
+        return;
+    }
+	std::cout<<"Read file success!"<<std::endl;
+	if(printVertices){
+		traverseAndPrintPrimitiveSets(node);
+	}
+	else {
+		std::cout<<"Print vertices disabled!"<<std::endl;	
+	}
+	std::cout<<"Reduction ratio: "<<reductionRatio<<std::endl;
+	std::cout<<"Num iterations: "<<numIterations<<std::endl;
+	osgUtil::Optimizer optimizer;
+	optimizer.optimize(node.get());
+	if (!node) {
+        std::cerr << "Error: unable to load input file " << inputPath << std::endl;
+        return;
+    }
+	osgUtil::Simplifier simple;
+	simple.setSmoothing( 0 );	
+	reductionRatio =pow(reductionRatio,numIterations);
+	std::cout<<"SimplyMesh Start!"<<std::endl;
+	simple.setSampleRatio( reductionRatio );
+	node->accept( simple );
+    std::cout<<"Simplify mesh success!Start to write File!"<<std::endl;
+	if (!osgDB::writeNodeFile(*node, outputPath)) {
+        std::cerr << "Error: unable to write output file " << outputPath << std::endl;
+        return;
+    }
+    std::cout<<"Output file: "<<outputPath<<std::endl;
+	return;
+	osg::ref_ptr<osg::Geode> geode = node->clone(osg::CopyOp::DEEP_COPY_ALL)->asNode()->asGeode();	
+	if (!node) {
+        std::cerr << "Error: unable to load input file " << inputPath << std::endl;
+        return;
+    }	
+	Mesh mesh;
+	auto geom  = mesh.readOsgbNode(node, reductionRatio,numIterations);
+	geode->removeDrawables(0, geode->getNumDrawables());
+    geode->addDrawable(geom);
+    // return osgDB::writeNodeFile(*geode, "output.osgb");
+    if (!osgDB::writeNodeFile(*geode, outputPath)) {
+        std::cerr << "Error: unable to write output file " << outputPath << std::endl;
+        return;
+    }
+	std::cout<<"Simplify mesh success!"<<std::endl;
+	std::cout<<"Output file: "<<outputPath<<std::endl;
+}	
 
 int main(int argc, char** argv){
-	std::string reductionRatio = argv[1];
-	std::string numIterations = argv[2];
-	std::string inputPath = argv[3];
-	std::string outputPath = argv[4];
-    processMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
-	return 0;
-    string osgbFile = "E:\\work\\Data\\out\\zhibei1.osgb";
-    osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(osgbFile);
+    // std::string reductionRatio = "0.3";
+    // std::string numIterations = "1";
+    // std::string inputPath = R"(E:\Data\gaunglianda\input\zhibei1.osgb)";
+    // std::string outputPath = R"(E:\Data\gaunglianda\output\zhibei1_0_3_2.osgb)";
+    // simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
+    // return 0;
 
-    if (!loadedModel) {
-        std::cerr << "Error: Failed to load osgb file " << osgbFile << std::endl;
-        return 1;
+	for (int i = 2; i < argc; ++i) {
+        if (std::string(argv[i]) == "-p") {
+            printVertices = true;
+            break;
+        }
     }
+	if(argc == 5 || (printVertices && argc == 6)){
+		std::string reductionRatio = argv[1];
+		std::string numIterations = argv[2];
+		std::string inputPath = argv[3];
+		std::string outputPath = argv[4];
+		// std::string reductionRatio = "0.3";
+		// std::string numIterations = "1";
+		// std::string inputPath = R"(E:\Data\gaunglianda\input\zhibei1.osgb)";
+		// std::string outputPath = R"(E:\Data\gaunglianda\output\zhibei1_0_3_2.osgb)";
+		simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
+		return 0;
+	}
+	else if(argc == 2 || (printVertices && argc == 3)){
+		std::string inputPath = argv[1];
+		
+		osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(inputPath);
+		if(printVertices)
+			traverseAndPrintPrimitiveSets(loadedModel);
+		if (!loadedModel) {
+		    std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
+		    return 1;
+		}
 
-    osgViewer::Viewer viewer;
-	osg::ref_ptr<osg::StateSet> stateSet = loadedModel->getOrCreateStateSet();
+		osgViewer::Viewer viewer;
+		osg::ref_ptr<osg::StateSet> stateSet = loadedModel->getOrCreateStateSet();
+		// osg::ref_ptr<osg::LineWidth> lineWidth = new osg::LineWidth;
+		// lineWidth->setWidth(2.0f); // 设置线宽
+		// stateSet->setAttributeAndModes(lineWidth, osg::StateAttribute::ON);
+		// stateSet->setMode(GL_POLYGON_MODE, osg::StateAttribute::ON);
+		// stateSet->setAttribute(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE));
+		// osg::ref_ptr<osg::StateSet> stateSet = loadedModel;
+		// osg::ref_ptr<osg::PolygonMode> polygonMode = new osg::PolygonMode;
+		// polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE); // 设置线框模式
+		// stateSet->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
+		// loadedModel->setStateSet(stateSet);
+		viewer.addEventHandler(new WireframeToggleHandler(stateSet));
+		viewer.addEventHandler(new osgViewer::StatsHandler);
+		viewer.setSceneData(loadedModel);
+		int windowX = 100; // 窗口左上角的 X 坐标
+		int windowY = 100; // 窗口左上角的 Y 坐标
+		int windowWidth = 800; // 窗口宽度
+		int windowHeight = 600; // 窗口高度
+		viewer.setUpViewInWindow(windowX, windowY, windowWidth, windowHeight);
+		return viewer.run();
+	}
+	else {
+		std::cout<<"Usage: [reductionRatio] [numIterations] [inputPath] [outputPath]"<<std::endl;
+		std::cout<<"Usage: [inputPath]"<<std::endl;
+		return 1;
+	}
+    // string osgbFile = "E:\\work\\Data\\out\\zhibei1.osgb";
 
-	osg::ref_ptr<osg::LineWidth> lineWidth = new osg::LineWidth;
-    lineWidth->setWidth(2.0f); // 设置线宽
-    stateSet->setAttributeAndModes(lineWidth, osg::StateAttribute::ON);
-
-	stateSet->setMode(GL_POLYGON_MODE, osg::StateAttribute::ON);
-    stateSet->setAttribute(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE));
-
-	// osg::ref_ptr<osg::StateSet> stateSet = loadedModel;
-    // osg::ref_ptr<osg::PolygonMode> polygonMode = new osg::PolygonMode;
-    // polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE); // 设置线框模式
-    // stateSet->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
-
-    // loadedModel->setStateSet(stateSet);
-    viewer.setSceneData(loadedModel);
-
-    return viewer.run();
 }

@@ -24,6 +24,7 @@
 
 namespace osgViewer
 {
+
 class OSGVIEWER_EXPORT PixelBufferWin32 : public osg::GraphicsContext, public osgViewer::GraphicsHandleWin32
 {
     public:
@@ -67,8 +68,8 @@ class OSGVIEWER_EXPORT PixelBufferWin32 : public osg::GraphicsContext, public os
         bool            _valid;
         bool            _realized;
         int             _boundBuffer;
-        bool            _supportBindTexImage;
 };
+
 }
 
 #endif

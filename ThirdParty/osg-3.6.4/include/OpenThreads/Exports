@@ -16,7 +16,7 @@
 
 #include <OpenThreads/Config>
 
-#ifndef _WIN32
+#ifndef WIN32
     #define OPENTHREAD_EXPORT_DIRECTIVE
 #else
     #if defined( OT_LIBRARY_STATIC )

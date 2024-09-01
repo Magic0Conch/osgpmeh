@@ -11,6 +11,7 @@
 #include <osgDB/ReadFile>
 #include <osgViewer/Viewer>
 #include <osgViewer/ViewerEventHandlers>
+#include "merge_geometry.h"
 // Triangle model
 bool printVertices = false;
 
@@ -18,7 +19,6 @@ class WireframeToggleHandler : public osgGA::GUIEventHandler {
 public:
     WireframeToggleHandler(osg::StateSet* stateSet)
         : _stateSet(stateSet), _wireframe(false) {
-        // 初始化为实色渲染模式
         _stateSet->setAttributeAndModes(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::FILL));
     }
 
@@ -26,7 +26,6 @@ public:
         switch (ea.getEventType()) {
             case osgGA::GUIEventAdapter::KEYDOWN: {
                 if (ea.getKey() == 'w') {
-                    // 切换到线框渲染模式
                     _wireframe = !_wireframe;
                     _stateSet->setAttributeAndModes(new osg::PolygonMode(
                         osg::PolygonMode::FRONT_AND_BACK,
@@ -128,6 +127,8 @@ void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath
         return;
     }
 	std::cout<<"Read file success!"<<std::endl;
+
+
 	if(printVertices){
 		traverseAndPrintPrimitiveSets(node);
 	}
@@ -173,6 +174,18 @@ void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath
 	std::cout<<"Output file: "<<outputPath<<std::endl;
 }	
 
+void mergeGeometry(std::string inputPath){
+    osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(inputPath);
+    if(printVertices)
+        traverseAndPrintPrimitiveSets(loadedModel);
+    if (!loadedModel) {
+        std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
+    }
+    std::string outputPath = R"(E:\work\2409\Data\NNU-MiniCIM\out\loaded.osgb)";
+    MergeGeometry::mergeGeometries(loadedModel,outputPath);
+    std::cout<<"Sucess!"<<std::endl;
+}
+
 int main(int argc, char** argv){
     // std::string reductionRatio = "0.3";
     // std::string numIterations = "1";
@@ -181,6 +194,8 @@ int main(int argc, char** argv){
     // simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
     // return 0;
 
+
+    // return 0;
 	for (int i = 2; i < argc; ++i) {
         if (std::string(argv[i]) == "-p") {
             printVertices = true;
@@ -188,15 +203,18 @@ int main(int argc, char** argv){
         }
     }
 	if(argc == 5 || (printVertices && argc == 6)){
-		std::string reductionRatio = argv[1];
-		std::string numIterations = argv[2];
+		std::string reductionRatioStr = argv[1];
+		std::string numIterationsStr = argv[2];
 		std::string inputPath = argv[3];
 		std::string outputPath = argv[4];
-		// std::string reductionRatio = "0.3";
-		// std::string numIterations = "1";
-		// std::string inputPath = R"(E:\Data\gaunglianda\input\zhibei1.osgb)";
+        auto reductionRatio = std::stof(reductionRatioStr);
+        auto numIterations = std::stoi(numIterationsStr);
+		
+		// float reductionRatio = 0.3;
+		// int numIterations = 1;
+		// std::string inputPath = R"(E:\Data\osgb\zhibei1.osgb)";
 		// std::string outputPath = R"(E:\Data\gaunglianda\output\zhibei1_0_3_2.osgb)";
-		simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
+		simplyfyMesh(reductionRatio, numIterations, inputPath, outputPath);
 		return 0;
 	}
 	else if(argc == 2 || (printVertices && argc == 3)){
@@ -212,16 +230,6 @@ int main(int argc, char** argv){
 
 		osgViewer::Viewer viewer;
 		osg::ref_ptr<osg::StateSet> stateSet = loadedModel->getOrCreateStateSet();
-		// osg::ref_ptr<osg::LineWidth> lineWidth = new osg::LineWidth;
-		// lineWidth->setWidth(2.0f); // 设置线宽
-		// stateSet->setAttributeAndModes(lineWidth, osg::StateAttribute::ON);
-		// stateSet->setMode(GL_POLYGON_MODE, osg::StateAttribute::ON);
-		// stateSet->setAttribute(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE));
-		// osg::ref_ptr<osg::StateSet> stateSet = loadedModel;
-		// osg::ref_ptr<osg::PolygonMode> polygonMode = new osg::PolygonMode;
-		// polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE); // 设置线框模式
-		// stateSet->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
-		// loadedModel->setStateSet(stateSet);
 		viewer.addEventHandler(new WireframeToggleHandler(stateSet));
 		viewer.addEventHandler(new osgViewer::StatsHandler);
 		viewer.setSceneData(loadedModel);
@@ -232,6 +240,10 @@ int main(int argc, char** argv){
 		viewer.setUpViewInWindow(windowX, windowY, windowWidth, windowHeight);
 		return viewer.run();
 	}
+    else if(argc == 1){
+        std::string inputPath = R"(E:\work\2409\Data\NNU-MiniCIM\osgb\canteen.osgb)";
+        mergeGeometry(inputPath);
+    }
 	else {
 		std::cout<<"Usage: [reductionRatio] [numIterations] [inputPath] [outputPath]"<<std::endl;
 		std::cout<<"Usage: [inputPath]"<<std::endl;

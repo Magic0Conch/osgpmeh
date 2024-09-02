@@ -4,7 +4,9 @@
 #include "mesh.h"
 #include <osg/PolygonMode>
 #include "osg/Geometry"
+#include "osg/Node"
 #include "osg/PrimitiveSet"
+#include "osg/ref_ptr"
 #include "osgUtil/Optimizer"
 #include "osgUtil/Simplifier"
 #include <osgDB/WriteFile>
@@ -117,17 +119,29 @@ void traverseAndPrintPrimitiveSets(osg::Node* node) {
         }
     }
 }
-
+osg::ref_ptr<osg::Node> mergeGeometry(std::string inputPath){
+    osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(inputPath);
+    if(printVertices)
+        traverseAndPrintPrimitiveSets(loadedModel);
+    if (!loadedModel) {
+        std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
+    }
+    std::string outputPath = R"(E:\work\2409\Data\NNU-MiniCIM\out\loaded.osgb)";
+    auto mergedGeode = MergeGeometry::mergeGeode(loadedModel);
+    std::cout<<"Sucess!"<<std::endl;
+    return mergedGeode;
+}
 
 void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath, std::string outputPath){
 	std::cout<<"Input file: "<<inputPath<<std::endl;
-	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(inputPath);
+    // 启动前先合并顶点
+	// osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(inputPath);
+    auto node = mergeGeometry(inputPath);
     if(node == nullptr){
         std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
         return;
     }
 	std::cout<<"Read file success!"<<std::endl;
-
 
 	if(printVertices){
 		traverseAndPrintPrimitiveSets(node);
@@ -174,17 +188,7 @@ void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath
 	std::cout<<"Output file: "<<outputPath<<std::endl;
 }	
 
-void mergeGeometry(std::string inputPath){
-    osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(inputPath);
-    if(printVertices)
-        traverseAndPrintPrimitiveSets(loadedModel);
-    if (!loadedModel) {
-        std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
-    }
-    std::string outputPath = R"(E:\work\2409\Data\NNU-MiniCIM\out\loaded.osgb)";
-    MergeGeometry::mergeGeometries(loadedModel,outputPath);
-    std::cout<<"Sucess!"<<std::endl;
-}
+
 
 int main(int argc, char** argv){
     // std::string reductionRatio = "0.3";
@@ -194,8 +198,6 @@ int main(int argc, char** argv){
     // simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
     // return 0;
 
-
-    // return 0;
 	for (int i = 2; i < argc; ++i) {
         if (std::string(argv[i]) == "-p") {
             printVertices = true;

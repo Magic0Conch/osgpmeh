@@ -10,9 +10,6 @@
 class MergeGeometry{
 public:
     static void collectGeometries(osg::Node* node, std::vector<osg::ref_ptr<osg::Geometry>>& geometries);
-    static osg::ref_ptr<osg::Geometry> mergeGeometries(const std::vector<osg::ref_ptr<osg::Geometry>>& geometries);
-    static osg::ref_ptr<osg::Geometry> mergeGeometries(osg::ref_ptr<osg::Node> root);
-    static void mergeGeometries(osg::ref_ptr<osg::Node> root,std::string outputPath);
     static void convertToTriangles(osg::PrimitiveSet* primitiveSet, osg::ref_ptr<osg::DrawElementsUShort> convertedIndices, unsigned int vertexOffset);
     static osg::ref_ptr<osg::DrawElementsUShort> convertPrimitiveSetToUShort(osg::PrimitiveSet* primitiveSet);
     static void applyTexturesToGeode(osg::ref_ptr<osg::Node> root, osg::ref_ptr<osg::Geode> mergedGeode);
@@ -20,6 +17,11 @@ public:
     static void removeDuplicateVertices(osg::Geometry* geometry);
     static void traverseAndRemoveDuplicates(osg::Node* node);
     
+    static osg::ref_ptr<osg::Geometry> mergeGeometries(const std::vector<osg::ref_ptr<osg::Geometry>>& geometries);
+    static osg::ref_ptr<osg::Geometry> mergeGeometries(osg::ref_ptr<osg::Node> root);
+    static void mergeGeometries(osg::ref_ptr<osg::Node> root,std::string outputPath);
+    static osg::ref_ptr<osg::Geode> mergeGeode(osg::ref_ptr<osg::Node> root);
+
 };
 
 namespace std {

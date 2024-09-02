@@ -347,3 +347,16 @@ void MergeGeometry::traverseAndRemoveDuplicates(osg::Node* node) {
         }
     }
 }
+
+osg::ref_ptr<osg::Geode> MergeGeometry::mergeGeode(osg::ref_ptr<osg::Node> root){
+    auto mergedGeometry = mergeGeometries(root);
+    auto mergedGeode = new osg::Geode;
+    mergedGeode->addDrawable(mergedGeometry);
+    // applyTexturesToGeode(root, mergedGeode);
+    if (root->getStateSet()) {
+        osg::ref_ptr<osg::StateSet> stateSetCopy = new osg::StateSet(*root->getStateSet(), osg::CopyOp::SHALLOW_COPY);
+        mergedGeode->setStateSet(stateSetCopy);
+    }
+    traverseAndRemoveDuplicates(mergedGeode);
+    return mergedGeode;
+}

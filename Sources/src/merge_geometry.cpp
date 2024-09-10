@@ -76,7 +76,6 @@ void MergeGeometry::applyTexturesToGeode(osg::ref_ptr<osg::Node> root, osg::ref_
     std::string outputPath = R"(E:\work\2409\Data\NNU-MiniCIM\out)";
     collector.saveAndSetTextures(outputPath);
 
-    // 将收集的去重纹理应用到mergedGeode
     // for (auto& texture : collector.textures) {
     //     if (texture) {
     //         mergedGeode->getOrCreateStateSet()->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);

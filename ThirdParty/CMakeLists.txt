@@ -1,2 +1,2 @@
-add_subdirectory(osg-3.6.4d)
+add_subdirectory(osg-3.6.4)
 add_subdirectory(json11)

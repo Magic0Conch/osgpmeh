@@ -242,10 +242,10 @@ int main(int argc, char** argv){
 		viewer.setUpViewInWindow(windowX, windowY, windowWidth, windowHeight);
 		return viewer.run();
 	}
-    else if(argc == 1){
-        std::string inputPath = R"(E:\work\2409\Data\NNU-MiniCIM\osgb\canteen.osgb)";
-        mergeGeometry(inputPath);
-    }
+    // else if(argc == 1){
+    //     std::string inputPath = R"(E:\work\2409\Data\NNU-MiniCIM\osgb\canteen.osgb)";
+    //     mergeGeometry(inputPath);
+    // }
 	else {
 		std::cout<<"Usage: [reductionRatio] [numIterations] [inputPath] [outputPath]"<<std::endl;
 		std::cout<<"Usage: [inputPath]"<<std::endl;

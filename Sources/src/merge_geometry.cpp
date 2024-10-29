@@ -4,7 +4,21 @@
 #include <filesystem>
 #include <unordered_map>
 
+struct Vec3Hash {
+    std::size_t operator()(const osg::Vec3& v) const {
+        return std::hash<float>()(v.x()) ^ std::hash<float>()(v.y()) ^ std::hash<float>()(v.z());
+    }
+};
 
+// 自定义 Vec3 的相等比较函数
+struct Vec3Equal {
+    bool operator()(const osg::Vec3& v1, const osg::Vec3& v2) const {
+        const float epsilon = 1e-6;  // 容忍误差
+        return (fabs(v1.x() - v2.x()) < epsilon) &&
+               (fabs(v1.y() - v2.y()) < epsilon) &&
+               (fabs(v1.z() - v2.z()) < epsilon);
+    }
+};
 
 void MergeGeometry::applyTexturesToGeode(osg::ref_ptr<osg::Node> root, osg::ref_ptr<osg::Geode> mergedGeode) {
     // 自定义的NodeVisitor，用于遍历所有的Geode节点并收集纹理
@@ -138,6 +152,26 @@ void MergeGeometry::convertToTriangles(osg::PrimitiveSet* primitiveSet, osg::ref
     }
 }
 
+osg::ref_ptr<osg::DrawElementsUShort> convertDrawArraysToDrawElements(osg::DrawArrays* drawArrays, unsigned int vertexOffset = 0)
+{
+    if (!drawArrays) return nullptr;
+
+    osg::ref_ptr<osg::DrawElementsUShort> drawElements = new osg::DrawElementsUShort(drawArrays->getMode());
+
+    // 获取起始顶点索引和顶点数量
+    unsigned int first = drawArrays->getFirst();  // 起始顶点索引
+    unsigned int count = drawArrays->getCount();  // 顶点数量
+
+    // 为每个顶点创建索引，索引从起始顶点开始，顺序增加
+    for (unsigned int i = 0; i < count; ++i) {
+        drawElements->push_back(static_cast<unsigned short>(first + i + vertexOffset));
+    }
+
+    return drawElements;
+}
+
+
+
 osg::ref_ptr<osg::Geometry> MergeGeometry::mergeGeometries(const std::vector<osg::ref_ptr<osg::Geometry>>& geometries) {
     osg::ref_ptr<osg::Geometry> mergedGeometry = new osg::Geometry;
 
@@ -167,13 +201,23 @@ osg::ref_ptr<osg::Geometry> MergeGeometry::mergeGeometries(const std::vector<osg
             //     }
             // }
              if (primitiveSet->getMode() == GL_TRIANGLES) {
+                std::cout << "PrimitiveSet type: " << typeid(*primitiveSet).name() << std::endl;
                 if (auto drawElementsUShort = dynamic_cast<osg::DrawElementsUShort*>(primitiveSet)) {
                     for (const auto& index : *drawElementsUShort) {
-                        mergedIndices->push_back(index + vertexOffset);
+                        mergedIndices->push_back(static_cast<unsigned int>(index) + vertexOffset);
                     }
                 } else if (auto drawElementsUInt = dynamic_cast<osg::DrawElementsUInt*>(primitiveSet)) {
                     for (const auto& index : *drawElementsUInt) {
-                        mergedIndices->push_back(static_cast<unsigned short>(index) + vertexOffset);
+                        mergedIndices->push_back(index + vertexOffset);
+                    }
+                } else if (auto drawElementsUByte = dynamic_cast<osg::DrawElementsUByte*>(primitiveSet)) {
+                    for (const auto& index : *drawElementsUByte) {
+                        mergedIndices->push_back(static_cast<unsigned int>(index) + vertexOffset);
+                    }
+                } else if (auto drawElementArray = dynamic_cast<osg::DrawArrays*>(primitiveSet)) {
+                    auto indices = convertDrawArraysToDrawElements(drawElementArray);
+                    for (const auto& index : *indices) {
+                        mergedIndices->push_back(static_cast<unsigned int>(index) + vertexOffset);
                     }
                 }
             } else if (primitiveSet->getMode() == GL_TRIANGLE_FAN || primitiveSet->getMode() == GL_TRIANGLE_STRIP) {
@@ -280,25 +324,20 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
     osg::Vec3Array* vertices = dynamic_cast<osg::Vec3Array*>(geometry->getVertexArray());
     if (!vertices) return;
 
-    std::unordered_map<osg::Vec3, unsigned int> uniqueVertices;
-    std::vector<unsigned int> indexMap(vertices->size());
+    std::unordered_map<osg::Vec3, unsigned int, Vec3Hash, Vec3Equal> uniqueVertices;
+    std::vector<unsigned int> indexMap(vertices->size(), std::numeric_limits<unsigned int>::max());
 
     osg::ref_ptr<osg::Vec3Array> newVertices = new osg::Vec3Array;
-    for (unsigned int i = 0; i < vertices->size(); ++i) {
+    unsigned int len = vertices->size();
+    for (unsigned int i = 0; i < len; ++i) {
         const osg::Vec3& vertex = (*vertices)[i];
-        bool found = false;
 
-        for (const auto& [uniqueVertex, index] : uniqueVertices) {
-            if (areVerticesEqual(vertex, uniqueVertex)) {
-                indexMap[i] = index;
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
+        auto it = uniqueVertices.find(vertex);
+        if (it != uniqueVertices.end()) {
+            indexMap[i] = it->second;  // 已有重复顶点，记录现有索引
+        } else {
             unsigned int newIndex = newVertices->size();
-            uniqueVertices[vertex] = newIndex;
+            uniqueVertices[vertex] = newIndex;  // 添加新顶点并记录索引
             newVertices->push_back(vertex);
             indexMap[i] = newIndex;
         }
@@ -306,6 +345,7 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
 
     geometry->setVertexArray(newVertices);
 
+    len = geometry->getNumPrimitiveSets();
     for (unsigned int i = 0; i < geometry->getNumPrimitiveSets(); ++i) {
         osg::PrimitiveSet* primitiveSet = geometry->getPrimitiveSet(i);
         osg::DrawElementsUInt* drawElementsUInt = dynamic_cast<osg::DrawElementsUInt*>(primitiveSet);
@@ -314,18 +354,70 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
 
         if (drawElementsUInt) {
             for (unsigned int j = 0; j < drawElementsUInt->size(); ++j) {
-                (*drawElementsUInt)[j] = indexMap[(*drawElementsUInt)[j]];
+                unsigned int oldIndex = (*drawElementsUInt)[j];
+                (*drawElementsUInt)[j] = indexMap[oldIndex];                
             }
         } else if (drawElementsUShort) {
             for (unsigned int j = 0; j < drawElementsUShort->size(); ++j) {
-                (*drawElementsUShort)[j] = indexMap[(*drawElementsUShort)[j]];
+                unsigned short oldIndex = (*drawElementsUShort)[j];
+                (*drawElementsUShort)[j] = static_cast<unsigned short>(indexMap[oldIndex]);
             }
         } else if (drawElementsUByte) {
             for (unsigned int j = 0; j < drawElementsUByte->size(); ++j) {
-                (*drawElementsUByte)[j] = indexMap[(*drawElementsUByte)[j]];
+                unsigned char oldIndex = (*drawElementsUByte)[j];
+                (*drawElementsUByte)[j] = static_cast<unsigned char>(indexMap[oldIndex]);
             }
         }
     }
+    
+    // osg::Vec2Array* texCoords = dynamic_cast<osg::Vec2Array*>(geometry->getTexCoordArray(0));
+    // osg::ref_ptr<osg::Vec2Array> newTexCoords = new osg::Vec2Array;
+    // if (texCoords) {
+    //     for (unsigned int i = 0; i < vertices->size(); ++i) {
+    //         const osg::Vec3& vertex = (*vertices)[i];
+    //         const osg::Vec2& texCoord = (*texCoords)[i];
+
+    //         auto it = uniqueVertices.find(vertex);
+    //         if (it != uniqueVertices.end()) {
+    //             indexMap[i] = it->second;
+    //         } else {
+    //             unsigned int newIndex = newVertices->size();
+    //             uniqueVertices[vertex] = newIndex;
+    //             newVertices->push_back(vertex);
+    //             newTexCoords->push_back(texCoord);  // 同步添加对应的纹理坐标
+    //             indexMap[i] = newIndex;
+    //         }
+    //     }
+    //     geometry->setTexCoordArray(0, newTexCoords);  // 设置新的纹理坐标数组
+    // }
+    
+    // // 获取颜色数组（如果存在）
+    // osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(geometry->getColorArray());
+    // osg::ref_ptr<osg::Vec4Array> newColors = new osg::Vec4Array;
+
+    // // 如果颜色数组存在，合并颜色数据
+    // if (colors) {
+    //     for (unsigned int i = 0; i < vertices->size(); ++i) {
+    //         const osg::Vec3& vertex = (*vertices)[i];
+    //         const osg::Vec4& color = (*colors)[i];
+
+    //         auto it = uniqueVertices.find(vertex);
+    //         if (it != uniqueVertices.end()) {
+    //             indexMap[i] = it->second;
+    //         } else {
+    //             unsigned int newIndex = newVertices->size();
+    //             uniqueVertices[vertex] = newIndex;
+    //             newVertices->push_back(vertex);
+    //             newColors->push_back(color);  // 同步添加颜色
+    //             indexMap[i] = newIndex;
+    //         }
+    //     }
+
+    //     // 设置新的颜色数组
+    //     geometry->setColorArray(newColors);
+    //     geometry->setColorBinding(osg::Geometry::BIND_PER_VERTEX); // 根据需求，绑定颜色到顶点
+    // }
+
 }
 
 // Function to traverse the scene graph and remove duplicate vertices

@@ -13,7 +13,7 @@ public:
     static void convertToTriangles(osg::PrimitiveSet* primitiveSet, osg::ref_ptr<osg::DrawElementsUShort> convertedIndices, unsigned int vertexOffset);
     static osg::ref_ptr<osg::DrawElementsUShort> convertPrimitiveSetToUShort(osg::PrimitiveSet* primitiveSet);
     static void applyTexturesToGeode(osg::ref_ptr<osg::Node> root, osg::ref_ptr<osg::Geode> mergedGeode);
-    static bool areVerticesEqual(const osg::Vec3& v1, const osg::Vec3& v2, float tolerance = 1e-5f);
+    static inline bool areVerticesEqual(const osg::Vec3& v1, const osg::Vec3& v2, float tolerance = 1e-6f);
     static void removeDuplicateVertices(osg::Geometry* geometry);
     static void traverseAndRemoveDuplicates(osg::Node* node);
     

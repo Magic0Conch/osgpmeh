@@ -1,19 +1,45 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM 遍历E:\File\2408\osgb目录下的所有osgb文件
-for %%f in (E:\work\2409\Data\NNU-MiniCIM\osgb\*.osgb) do (
-    REM 提取文件名（不含路径和扩展名）
+REM Set the command line encoding to UTF-8
+chcp 65001
+
+REM Output a message to confirm the script has started
+echo Script execution started...
+
+REM Set the absolute path to osgpmesh.exe
+set "exePath=E:\work\2409\C++\osgpmeh\build\bin\osgpmesh.exe"
+
+REM Start iterating over the files recursively in the directory
+echo Starting to process files recursively...
+for /r E:\work\2409\Data\NNU-MiniCIM_09_24\NNU-MiniCIM_09_24\NNU-MiniCIM_09_24 %%f in (*.osgb) do (
+    REM Extract the filename (without path and extension)
     set "filename=%%~nf"
     
-    REM 设置输入路径
+    REM Set the input path
     set "input=%%f"
     
-    REM 设置输出路径
-    set "output=E:\work\2409\Data\NNU-MiniCIM\out\!filename!.osgb"
+    REM Set the output path
+    set "output=E:\work\2409\Data\NNU-MiniCIM_09_24\out2\!filename!_9_3.osgb"
     
-    REM 执行命令
-    ..\build\bin\osgpmesh.exe 0.9 2 "!input!" "!output!"
+    REM Output the file being processed
+    echo Processing file: !input!
+    
+    REM Execute the command and redirect output to a log file
+    "%exePath%" 0.9 3 "!input!" "!output!" > output.log 2>&1
+    
+    REM Check if the command was successful
+    if errorlevel 1 (
+        echo Error: osgpmesh.exe execution failed, input file: !input!
+    ) else (
+        echo Success: Processed file !input!
+    )
 )
 
 endlocal
+
+REM Output a message that the script has finished
+echo Script execution completed!
+
+REM Keep the command window open to view the output
+pause

@@ -20,6 +20,62 @@ struct Vec3Equal {
     }
 };
 
+osg::Texture* MergeGeometry::getTextureFromNode(osg::Node* node) {
+    if (!node) return nullptr;
+
+    // 检查当前节点的 StateSet
+    osg::StateSet* stateSet = node->getStateSet();
+    if (stateSet) {
+        osg::Texture* texture = dynamic_cast<osg::Texture*>(stateSet->getTextureAttribute(0, osg::StateAttribute::TEXTURE));
+        if (texture) {
+            return texture; // 找到纹理
+        }
+    }
+
+    // 如果是 Group 节点，递归检查子节点
+    osg::Group* group = node->asGroup();
+    if (group) {
+        for (unsigned int i = 0; i < group->getNumChildren(); ++i) {
+            osg::Texture* texture = getTextureFromNode(group->getChild(i));
+            if (texture) {
+                return texture; // 找到纹理
+            }
+        }
+    }
+
+    return nullptr; // 没有找到纹理
+}
+
+void MergeGeometry::mergeStateSets(osg::Node* sourceNode, osg::Geometry* targetGeode) {
+    if (!sourceNode || !targetGeode) return;
+
+    // 获取源节点的 StateSet
+    osg::StateSet* sourceStateSet = sourceNode->getStateSet();
+    if (sourceStateSet) {
+        // 创建一个新的 StateSet 并复制源节点的 StateSet
+        osg::ref_ptr<osg::StateSet> newStateSet = new osg::StateSet(*sourceStateSet, osg::CopyOp::SHALLOW_COPY);
+
+        // 遍历纹理属性并复制
+        for (unsigned int i = 0; i < newStateSet->getTextureAttributeList().size(); ++i) {
+            osg::Texture* texture = dynamic_cast<osg::Texture*>(newStateSet->getTextureAttribute(i, osg::StateAttribute::TEXTURE));
+            if (texture) {
+                newStateSet->setTextureAttribute(i, texture);
+            }
+        }
+
+        // 将新的 StateSet 应用到目标节点
+        targetGeode->setStateSet(newStateSet);
+    }
+
+    // 如果是 Group 节点，递归处理子节点
+    osg::Group* group = sourceNode->asGroup();
+    if (group) {
+        for (unsigned int i = 0; i < group->getNumChildren(); ++i) {
+            mergeStateSets(group->getChild(i), targetGeode);
+        }
+    }
+}
+
 void MergeGeometry::applyTexturesToGeode(osg::ref_ptr<osg::Node> root, osg::ref_ptr<osg::Geode> mergedGeode) {
     // 自定义的NodeVisitor，用于遍历所有的Geode节点并收集纹理
     class TextureCollector : public osg::NodeVisitor {
@@ -326,11 +382,18 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
 
     std::unordered_map<osg::Vec3, unsigned int, Vec3Hash, Vec3Equal> uniqueVertices;
     std::vector<unsigned int> indexMap(vertices->size(), std::numeric_limits<unsigned int>::max());
+    
+    osg::Vec2Array* texCoords = dynamic_cast<osg::Vec2Array*>(geometry->getTexCoordArray(0));
+    osg::ref_ptr<osg::Vec2Array> newTexCoords = new osg::Vec2Array;
 
     osg::ref_ptr<osg::Vec3Array> newVertices = new osg::Vec3Array;
     unsigned int len = vertices->size();
     for (unsigned int i = 0; i < len; ++i) {
         const osg::Vec3& vertex = (*vertices)[i];
+        osg::Vec2 texCoord;
+        if(texCoords){
+            texCoord = (*texCoords)[i];
+        }
 
         auto it = uniqueVertices.find(vertex);
         if (it != uniqueVertices.end()) {
@@ -339,11 +402,15 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
             unsigned int newIndex = newVertices->size();
             uniqueVertices[vertex] = newIndex;  // 添加新顶点并记录索引
             newVertices->push_back(vertex);
+            if (texCoords)
+                newTexCoords->push_back(texCoord);  // 同步添加对应的纹理坐标
             indexMap[i] = newIndex;
         }
     }
 
     geometry->setVertexArray(newVertices);
+    if (texCoords)
+        geometry->setTexCoordArray(0, newTexCoords);  // 设置新的纹理坐标数组
 
     len = geometry->getNumPrimitiveSets();
     for (unsigned int i = 0; i < geometry->getNumPrimitiveSets(); ++i) {
@@ -370,12 +437,11 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
         }
     }
     
-    // osg::Vec2Array* texCoords = dynamic_cast<osg::Vec2Array*>(geometry->getTexCoordArray(0));
-    // osg::ref_ptr<osg::Vec2Array> newTexCoords = new osg::Vec2Array;
+
     // if (texCoords) {
     //     for (unsigned int i = 0; i < vertices->size(); ++i) {
     //         const osg::Vec3& vertex = (*vertices)[i];
-    //         const osg::Vec2& texCoord = (*texCoords)[i];
+           
 
     //         auto it = uniqueVertices.find(vertex);
     //         if (it != uniqueVertices.end()) {
@@ -384,11 +450,11 @@ void MergeGeometry::removeDuplicateVertices(osg::Geometry* geometry) {
     //             unsigned int newIndex = newVertices->size();
     //             uniqueVertices[vertex] = newIndex;
     //             newVertices->push_back(vertex);
-    //             newTexCoords->push_back(texCoord);  // 同步添加对应的纹理坐标
+                
     //             indexMap[i] = newIndex;
     //         }
     //     }
-    //     geometry->setTexCoordArray(0, newTexCoords);  // 设置新的纹理坐标数组
+        
     // }
     
     // // 获取颜色数组（如果存在）
@@ -445,10 +511,23 @@ osg::ref_ptr<osg::Geode> MergeGeometry::mergeGeode(osg::ref_ptr<osg::Node> root)
     auto mergedGeode = new osg::Geode;
     mergedGeode->addDrawable(mergedGeometry);
     // applyTexturesToGeode(root, mergedGeode);
-    if (root->getStateSet()) {
-        osg::ref_ptr<osg::StateSet> stateSetCopy = new osg::StateSet(*root->getStateSet(), osg::CopyOp::SHALLOW_COPY);
-        mergedGeode->setStateSet(stateSetCopy);
-    }
+    // if (root->getStateSet()) {
+    //     osg::ref_ptr<osg::StateSet> stateSetCopy = new osg::StateSet(*root->getStateSet(), osg::CopyOp::SHALLOW_COPY);
+    //     mergedGeode->setStateSet(stateSetCopy);
+    // }
     traverseAndRemoveDuplicates(mergedGeode);
+    mergeStateSets(root, mergedGeometry);
+    // osg::Texture* texture = getTextureFromNode(root);
+    // if (texture) {
+    //     // 创建一个新的 StateSet 并绑定纹理
+    //     osg::ref_ptr<osg::StateSet> stateSet = new osg::StateSet();
+    //     stateSet->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
+
+    //     // 将 StateSet 应用到 mergedGeode
+    //     mergedGeode->setStateSet(stateSet);
+    // } else {
+    //     std::cerr << "No texture found in the root node!" << std::endl;
+    // }
+
     return mergedGeode;
 }

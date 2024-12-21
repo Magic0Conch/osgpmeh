@@ -125,8 +125,7 @@ osg::ref_ptr<osg::Node> mergeGeometry(std::string inputPath){
         traverseAndPrintPrimitiveSets(loadedModel);
     if (!loadedModel) {
         std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
-    }
-    std::string outputPath = R"(E:\Data\out\simple.osgb)";
+    }    
     auto mergedGeode = MergeGeometry::mergeGeode(loadedModel);
     std::cout<<"Sucess!"<<std::endl;
     return mergedGeode;
@@ -193,8 +192,8 @@ void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath
 int main(int argc, char** argv){
     // std::string reductionRatio = "1";
     // std::string numIterations = "1";
-    // std::string inputPath = R"(E:\work\2409\Data\NNU-MiniCIM\osgb\101building.osgb)";
-    // std::string outputPath = R"(E:\work\2409\Data\NNU-MiniCIM\out2\101building_91.osgb)";
+    // std::string inputPath = R"(E:\work\2409\Data\NNU-MiniCIM_09_24\NNU-MiniCIM_09_24\mergeData\1.osgb)";
+    // std::string outputPath = R"(E:\work\2409\Data\NNU-MiniCIM\out2\1.osgb)";
     // simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
     // return 0;
 

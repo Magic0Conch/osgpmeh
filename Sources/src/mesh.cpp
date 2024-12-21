@@ -67,7 +67,7 @@ void Mesh::combineGeometries(osg::Node* node, osg::Geometry* combinedGeometry, o
 
                 osg::Vec4Array* colorArray = dynamic_cast<osg::Vec4Array*>(geometry->getColorArray());
                 osg::Vec4Array* combinedColors = dynamic_cast<osg::Vec4Array*>(combinedGeometry->getColorArray());
-                if (!combinedColors) {
+                if (combinedColors) {
                     combinedColors = new osg::Vec4Array;
                     combinedGeometry->setColorArray(combinedColors, osg::Array::BIND_PER_VERTEX);
                 }

@@ -16,7 +16,9 @@ public:
     static inline bool areVerticesEqual(const osg::Vec3& v1, const osg::Vec3& v2, float tolerance = 1e-6f);
     static void removeDuplicateVertices(osg::Geometry* geometry);
     static void traverseAndRemoveDuplicates(osg::Node* node);
-    
+    static void mergeStateSets(osg::Node* sourceNode, osg::Geometry* targetGeode);
+    static osg::Texture* getTextureFromNode(osg::Node* node);
+
     static osg::ref_ptr<osg::Geometry> mergeGeometries(const std::vector<osg::ref_ptr<osg::Geometry>>& geometries);
     static osg::ref_ptr<osg::Geometry> mergeGeometries(osg::ref_ptr<osg::Node> root);
     static void mergeGeometries(osg::ref_ptr<osg::Node> root,std::string outputPath);

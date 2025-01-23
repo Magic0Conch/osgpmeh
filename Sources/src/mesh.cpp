@@ -16,7 +16,8 @@
 #include <osg/StateSet>
 #include <osg/Material>
 #include <iostream>
-
+#include <osg/Texture2D>
+#include <unordered_set>
 void Mesh::combineGeometries(osg::Node* node, osg::Geometry* combinedGeometry, osg::ref_ptr<osg::StateSet> combinedStateSet) {
     if (!node) return;
 
@@ -124,4 +125,64 @@ osg::Geometry* Mesh::readOsgbNode(osg::Node* node, float ratio, int numIteration
     }
     combinedGeometry->setStateSet(combinedStateSet);
     return combinedGeometry;
+}
+
+void Mesh::extractTexturesFromNode(osg::Node* node, const std::string& output_folder) {
+    if (!node) {
+        std::cerr << "Input node is null!" << std::endl;
+        return;
+    }
+
+    // 存储唯一纹理
+    std::unordered_set<std::string> saved_texture_files;
+    std::vector<osg::ref_ptr<osg::Texture2D>> textures;
+
+    // 遍历节点，收集纹理
+    collectTextures(node, textures);
+
+    // 保存纹理（避免重复）
+    for (size_t i = 0; i < textures.size(); ++i) {
+        osg::ref_ptr<osg::Texture2D> texture = textures[i];
+        if (texture && texture->getImage()) {
+            std::string texture_filename = output_folder + "/texture_" + std::to_string(i) + ".jpg";
+            
+            // 检查纹理是否已经保存
+            if (saved_texture_files.find(texture_filename) == saved_texture_files.end()) {
+                osgDB::writeImageFile(*texture->getImage(), texture_filename);
+                saved_texture_files.insert(texture_filename); // 标记该纹理已保存
+                std::cout << "Texture saved to: " << texture_filename << std::endl;
+            }
+        }
+    }
+}
+
+void Mesh::collectTextures(osg::Node* node, std::vector<osg::ref_ptr<osg::Texture2D>>& textures) {
+    if (!node) return;
+
+    // 如果节点是 Geode 类型，检查它的 Drawable（几何体）
+    osg::Geode* geode = dynamic_cast<osg::Geode*>(node);
+    if (geode) {
+        for (unsigned int i = 0; i < geode->getNumDrawables(); ++i) {
+            osg::Drawable* drawable = geode->getDrawable(i);
+            osg::Geometry* geometry = dynamic_cast<osg::Geometry*>(drawable);
+            if (geometry) {
+                // 获取几何体的 StateSet，检查其中的纹理
+                osg::StateSet* stateSet = geometry->getStateSet();
+                if (stateSet) {
+                    osg::Texture2D* texture = dynamic_cast<osg::Texture2D*>(stateSet->getTextureAttribute(0, osg::StateAttribute::TEXTURE));
+                    if (texture && texture->getImage()) {
+                        textures.push_back(texture);
+                    }
+                }
+            }
+        }
+    }
+
+    // 如果是 Group 类型，递归遍历子节点
+    osg::Group* group = dynamic_cast<osg::Group*>(node);
+    if (group) {
+        for (unsigned int i = 0; i < group->getNumChildren(); ++i) {
+            collectTextures(group->getChild(i), textures);
+        }
+    }
 }

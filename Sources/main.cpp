@@ -1,242 +1,230 @@
+#include "MeshSimplifier.h"
+#include "osg/Geode"
 #include <cmath>
+#include <cstddef>
 #include <iostream>
 #include <string>
-#include "mesh.h"
-#include <osg/PolygonMode>
-#include "osg/Geometry"
-#include "osg/PrimitiveSet"
-#include "osgUtil/Optimizer"
-#include "osgUtil/Simplifier"
-#include <osgDB/WriteFile>
+#include <vector>
+#include <meshoptimizer.h>
+#include <osg/Node>
 #include <osgDB/ReadFile>
-#include <osgViewer/Viewer>
-#include <osgViewer/ViewerEventHandlers>
-// Triangle model
-bool printVertices = false;
+#include <osgDB/WriteFile>
+#include <osg/PrimitiveSet>
+#include "mesh.h"
+#include "osgDB/DataTypes"
+#include <osg/Material>
+#include <osg/LightSource>
+#include <osg/Geometry>
+#include <osg/StateSet>
+#include <osg/Group>
+#include <osg/Node>
+#include <osg/LightSource> // 适用于光源
 
-class WireframeToggleHandler : public osgGA::GUIEventHandler {
-public:
-    WireframeToggleHandler(osg::StateSet* stateSet)
-        : _stateSet(stateSet), _wireframe(false) {
-        // 初始化为实色渲染模式
-        _stateSet->setAttributeAndModes(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::FILL));
+
+osg::ref_ptr<osg::Node> loadOSGBFile(const std::string& filename) {
+    osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(filename);
+    if (!node) {
+        std::cerr << "Failed to load osgb file: " << filename << std::endl;
+        return nullptr;
+    }
+    return node;
+}
+
+void updateGeometry(osg::Geometry* geometry,
+                    const std::vector<Vertex>& vertices,
+                    const std::vector<unsigned int>& indices,
+                    size_t vertex_size) {
+    // 获取或创建 StateSet，StateSet 管理光照、材质等渲染状态
+    osg::ref_ptr<osg::StateSet> stateSet = geometry->getOrCreateStateSet();
+    
+    // 备份原始的材质和光照设置
+    osg::ref_ptr<osg::Material> originalMaterial = dynamic_cast<osg::Material*>(stateSet->getAttribute(osg::StateAttribute::MATERIAL));
+    osg::ref_ptr<osg::LightSource> originalLightSource = dynamic_cast<osg::LightSource*>(stateSet->getAttribute(osg::StateAttribute::LIGHT));
+
+    // 更新顶点位置
+    osg::ref_ptr<osg::Vec3Array> newVertexArray = new osg::Vec3Array();
+    osg::ref_ptr<osg::Vec2Array> newTexCoordArray = new osg::Vec2Array();
+    osg::ref_ptr<osg::Vec3Array> newNormalArray = new osg::Vec3Array();
+
+    for (size_t i = 0; i < vertices.size(); i++) {
+        const auto& vertex = vertices[i];
+        // 提取位置
+        newVertexArray->push_back(osg::Vec3(vertex.position[0], vertex.position[1],vertex.position[2]));
+
+        // 提取法线
+        newNormalArray->push_back(osg::Vec3(vertex.normal[0],vertex.normal[1],vertex.normal[2]));
+
+        // 提取 UV
+        newTexCoordArray->push_back(osg::Vec2(vertex.uv[0], vertex.uv[1]));
     }
 
-    bool handle(const osgGA::GUIEventAdapter& ea, osgGA::GUIActionAdapter&) override {
-        switch (ea.getEventType()) {
-            case osgGA::GUIEventAdapter::KEYDOWN: {
-                if (ea.getKey() == 'w') {
-                    // 切换到线框渲染模式
-                    _wireframe = !_wireframe;
-                    _stateSet->setAttributeAndModes(new osg::PolygonMode(
-                        osg::PolygonMode::FRONT_AND_BACK,
-                        _wireframe ? osg::PolygonMode::LINE : osg::PolygonMode::FILL
-                    ));
-                    return true;
-                }
-                break;
-            }
-            default:
-                break;
+    geometry->setVertexArray(newVertexArray);
+    geometry->setTexCoordArray(0, newTexCoordArray);
+    geometry->setNormalArray(newNormalArray);
+
+    // 更新索引
+    osg::ref_ptr<osg::DrawElementsUInt> newDrawElements = new osg::DrawElementsUInt(GL_TRIANGLES);
+    for (unsigned int index : indices) {
+        newDrawElements->push_back(index);
+    }
+    geometry->removePrimitiveSet(0, geometry->getNumPrimitiveSets());
+    geometry->addPrimitiveSet(newDrawElements);
+
+    // ---------------------------- 保留原有的材质和光照 ----------------------------
+    
+    // 如果原有材质存在，保留它
+    if (originalMaterial) {
+        stateSet->setAttributeAndModes(originalMaterial.get(), osg::StateAttribute::ON);  // 设置原有的材质
+    }
+
+    // 如果原有光源存在，保留它
+    if (originalLightSource) {
+        // 原始模型有光源，保留并使用
+        osg::ref_ptr<osg::Group> parent = geometry->getParent(0);
+        if (parent) {
+            parent->addChild(originalLightSource.get());  // 将光源添加到父节点
         }
-        return false;
     }
 
-private:
-    osg::ref_ptr<osg::StateSet> _stateSet;
-    bool _wireframe;
-};
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF); 
 
-void printVertexData(osg::Geometry* geometry) {
-    // 获取顶点数组
-    osg::Vec3Array* vertices = dynamic_cast<osg::Vec3Array*>(geometry->getVertexArray());
-    if (!vertices) {
-        std::cerr << "Error: No vertices found!" << std::endl;
-        return;
-    }
+    // 确保法线在简化后更新
+    geometry->dirtyBound();  // 强制更新包围盒
+}
 
-    // 获取法线数组
-    osg::Vec3Array* normals = dynamic_cast<osg::Vec3Array*>(geometry->getNormalArray());
-    if (!normals) {
-        std::cerr << "Error: No normals found!" << std::endl;
-    }
-
-    // 获取纹理坐标数组
-    osg::Vec2Array* texCoords = dynamic_cast<osg::Vec2Array*>(geometry->getTexCoordArray(0));
-    if (!texCoords) {
-        std::cerr << "Error: No texture coordinates found!" << std::endl;
-    }
-	std::cout << "Vertex data:" << std::endl;
-	for (unsigned int i = 0; i < vertices->size(); ++i) {
-        osg::Vec3 vertex = (*vertices)[i];
-        std::cout << "Vertex " << i << ": (" << vertex.x() << ", " << vertex.y() << ", " << vertex.z() << ")";
-        if (normals) {
-            osg::Vec3 normal = (*normals)[i];
-            std::cout << " Normal: (" << normal.x() << ", " << normal.y() << ", " << normal.z() << ")";
-        }
-        if (texCoords) {
-            osg::Vec2 texCoord = (*texCoords)[i];
-            std::cout << " TexCoord: (" << texCoord.x() << ", " << texCoord.y() << ")";
-        }
-        std::cout << std::endl;
+void saveOSGBFile(const osg::ref_ptr<osg::Node>& node, const std::string& filename) {
+    if (!osgDB::writeNodeFile(*node, filename)) {
+        std::cerr << "Failed to save osgb file: " << filename << std::endl;
+    } else {
+        std::cout << "File saved: " << filename << std::endl;
     }
 }
 
-void traverseAndPrintPrimitiveSets(osg::Node* node) {
+void collectGeometries(osg::Node* node, std::vector<osg::ref_ptr<osg::Geometry>>& geometries) {
     if (!node) return;
 
-    osg::Geode* geode = node->asGeode();
+    // 检查节点是否为 Geode 类型
+    osg::Geode* geode = dynamic_cast<osg::Geode*>(node);
     if (geode) {
+        // 遍历 Geode 的每个 Drawable
         for (unsigned int i = 0; i < geode->getNumDrawables(); ++i) {
-            osg::Geometry* geometry = geode->getDrawable(i)->asGeometry();
+            osg::Geometry* geometry = dynamic_cast<osg::Geometry*>(geode->getDrawable(i));
             if (geometry) {
-                std::cout << "Geometry found in Geode" << std::endl;
-				printVertexData(geometry);
-                for (unsigned int j = 0; j < geometry->getNumPrimitiveSets(); ++j) {
-                    osg::PrimitiveSet* ps = geometry->getPrimitiveSet(j);
-					
-                    if (dynamic_cast<osg::DrawArrays*>(ps)) {
-                        std::cout << "  PrimitiveSet " << j << " is of type DrawArrays" << std::endl;
-                    } else if (dynamic_cast<osg::DrawElementsUByte*>(ps)) {
-                        std::cout << "  PrimitiveSet " << j << " is of type DrawElementsUByte" << std::endl;
-                    } else if (dynamic_cast<osg::DrawElementsUShort*>(ps)) {
-                        std::cout << "  PrimitiveSet " << j << " is of type DrawElementsUShort" << std::endl;
-                    } else if (dynamic_cast<osg::DrawElementsUInt*>(ps)) {
-                        std::cout << "  PrimitiveSet " << j << " is of type DrawElementsUInt" << std::endl;
-                    } else {
-                        std::cout << "  PrimitiveSet " << j << " is of unknown type" << std::endl;
-                    }
-                }
-		    }
+                geometries.push_back(geometry);
+            }
         }
     }
 
-    osg::Group* group = node->asGroup();
+    // 如果是 Group 类型，递归遍历子节点
+    osg::Group* group = dynamic_cast<osg::Group*>(node);
     if (group) {
         for (unsigned int i = 0; i < group->getNumChildren(); ++i) {
-            traverseAndPrintPrimitiveSets(group->getChild(i));
+            collectGeometries(group->getChild(i), geometries);
         }
     }
 }
 
+GLenum getGeometryPrimitiveTypes(osg::Geometry* geometry) {
+    // 遍历 geometry 的所有 PrimitiveSet
+    for (unsigned int i = 0; i < geometry->getNumPrimitiveSets(); ++i) {
+        // 获取当前的 PrimitiveSet
+        osg::PrimitiveSet* primitiveSet = geometry->getPrimitiveSet(i);
 
-void simplyfyMesh(float reductionRatio, int numIterations, std::string inputPath, std::string outputPath){
-	std::cout<<"Input file: "<<inputPath<<std::endl;
-	osg::ref_ptr<osg::Node> node = osgDB::readNodeFile(inputPath);
-    if(node == nullptr){
-        std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
-        return;
-    }
-	std::cout<<"Read file success!"<<std::endl;
-	if(printVertices){
-		traverseAndPrintPrimitiveSets(node);
-	}
-	else {
-		std::cout<<"Print vertices disabled!"<<std::endl;	
-	}
-	std::cout<<"Reduction ratio: "<<reductionRatio<<std::endl;
-	std::cout<<"Num iterations: "<<numIterations<<std::endl;
-	osgUtil::Optimizer optimizer;
-	optimizer.optimize(node.get());
-	if (!node) {
-        std::cerr << "Error: unable to load input file " << inputPath << std::endl;
-        return;
-    }
-	osgUtil::Simplifier simple;
-	simple.setSmoothing( 0 );	
-	reductionRatio =pow(reductionRatio,numIterations);
-	std::cout<<"SimplyMesh Start!"<<std::endl;
-	simple.setSampleRatio( reductionRatio );
-	node->accept( simple );
-    std::cout<<"Simplify mesh success!Start to write File!"<<std::endl;
-	if (!osgDB::writeNodeFile(*node, outputPath)) {
-        std::cerr << "Error: unable to write output file " << outputPath << std::endl;
-        return;
-    }
-    std::cout<<"Output file: "<<outputPath<<std::endl;
-	return;
-	osg::ref_ptr<osg::Geode> geode = node->clone(osg::CopyOp::DEEP_COPY_ALL)->asNode()->asGeode();	
-	if (!node) {
-        std::cerr << "Error: unable to load input file " << inputPath << std::endl;
-        return;
-    }	
-	Mesh mesh;
-	auto geom  = mesh.readOsgbNode(node, reductionRatio,numIterations);
-	geode->removeDrawables(0, geode->getNumDrawables());
-    geode->addDrawable(geom);
-    // return osgDB::writeNodeFile(*geode, "output.osgb");
-    if (!osgDB::writeNodeFile(*geode, outputPath)) {
-        std::cerr << "Error: unable to write output file " << outputPath << std::endl;
-        return;
-    }
-	std::cout<<"Simplify mesh success!"<<std::endl;
-	std::cout<<"Output file: "<<outputPath<<std::endl;
-}	
-
-int main(int argc, char** argv){
-    // std::string reductionRatio = "0.3";
-    // std::string numIterations = "1";
-    // std::string inputPath = R"(E:\Data\gaunglianda\input\zhibei1.osgb)";
-    // std::string outputPath = R"(E:\Data\gaunglianda\output\zhibei1_0_3_2.osgb)";
-    // simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
-    // return 0;
-
-	for (int i = 2; i < argc; ++i) {
-        if (std::string(argv[i]) == "-p") {
-            printVertices = true;
-            break;
+        // 获取当前 PrimitiveSet 的图元类型
+        auto mode = primitiveSet->getMode();
+        return mode;
+        // 输出图元类型
+        switch (mode) {
+            case osg::PrimitiveSet::POINTS:
+                std::cout << "Primitive " << i << ": POINTS" << std::endl;
+                break;
+            case osg::PrimitiveSet::LINES:
+                std::cout << "Primitive " << i << ": LINES" << std::endl;
+                break;
+            case osg::PrimitiveSet::LINE_STRIP:
+                std::cout << "Primitive " << i << ": LINE_STRIP" << std::endl;
+                break;
+            case osg::PrimitiveSet::LINE_LOOP:
+                std::cout << "Primitive " << i << ": LINE_LOOP" << std::endl;
+                break;
+            case osg::PrimitiveSet::TRIANGLES:
+                std::cout << "Primitive " << i << ": TRIANGLES" << std::endl;
+                break;
+            case osg::PrimitiveSet::TRIANGLE_STRIP:
+                std::cout << "Primitive " << i << ": TRIANGLE_STRIP" << std::endl;
+                break;
+            case osg::PrimitiveSet::TRIANGLE_FAN:
+                std::cout << "Primitive " << i << ": TRIANGLE_FAN" << std::endl;
+                break;
+            case osg::PrimitiveSet::QUADS:
+                std::cout << "Primitive " << i << ": QUADS" << std::endl;
+                break;
+            case osg::PrimitiveSet::QUAD_STRIP:
+                std::cout << "Primitive " << i << ": QUAD_STRIP" << std::endl;
+                break;
+            case osg::PrimitiveSet::POLYGON:
+                std::cout << "Primitive " << i << ": POLYGON" << std::endl;
+                break;
+            default:
+                std::cout << "Primitive " << i << ": Unknown Primitive Type" << std::endl;
+                break;
         }
     }
-	if(argc == 5 || (printVertices && argc == 6)){
+}
+
+int main(int argc, char** argv) {
+    std::string inputPath = R"(E:\Data\mergeData\xingzhi_building.osgb)";
+    std::string outputPath = R"(E:\Data\mergeData\out\xingzhi_building_50.osgb)";
+    float target_ratio = 0.5f;
+    if(argc == 5){
 		std::string reductionRatio = argv[1];
 		std::string numIterations = argv[2];
-		std::string inputPath = argv[3];
-		std::string outputPath = argv[4];
+		inputPath = argv[3];
+		outputPath = argv[4];
 		// std::string reductionRatio = "0.3";
 		// std::string numIterations = "1";
-		// std::string inputPath = R"(E:\Data\gaunglianda\input\zhibei1.osgb)";
-		// std::string outputPath = R"(E:\Data\gaunglianda\output\zhibei1_0_3_2.osgb)";
-		simplyfyMesh(std::stof(reductionRatio), std::stoi(numIterations), inputPath, outputPath);
-		return 0;
+		// inputPath = R"(E:\Data\gaunglianda\input\zhibei1.osgb)";
+		// outputPath = R"(E:\Data\gaunglianda\output\zhibei1_0_3_2.osgb)";
+        target_ratio = pow(std::stof(reductionRatio),std::stoi(numIterations));
 	}
-	else if(argc == 2 || (printVertices && argc == 3)){
-		std::string inputPath = argv[1];
-		
-		osg::ref_ptr<osg::Node> loadedModel = osgDB::readNodeFile(inputPath);
-		if(printVertices)
-			traverseAndPrintPrimitiveSets(loadedModel);
-		if (!loadedModel) {
-		    std::cerr << "Error: Failed to load osgb file " << inputPath << std::endl;
-		    return 1;
-		}
-
-		osgViewer::Viewer viewer;
-		osg::ref_ptr<osg::StateSet> stateSet = loadedModel->getOrCreateStateSet();
-		// osg::ref_ptr<osg::LineWidth> lineWidth = new osg::LineWidth;
-		// lineWidth->setWidth(2.0f); // 设置线宽
-		// stateSet->setAttributeAndModes(lineWidth, osg::StateAttribute::ON);
-		// stateSet->setMode(GL_POLYGON_MODE, osg::StateAttribute::ON);
-		// stateSet->setAttribute(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE));
-		// osg::ref_ptr<osg::StateSet> stateSet = loadedModel;
-		// osg::ref_ptr<osg::PolygonMode> polygonMode = new osg::PolygonMode;
-		// polygonMode->setMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::LINE); // 设置线框模式
-		// stateSet->setAttributeAndModes(polygonMode, osg::StateAttribute::OVERRIDE | osg::StateAttribute::ON);
-		// loadedModel->setStateSet(stateSet);
-		viewer.addEventHandler(new WireframeToggleHandler(stateSet));
-		viewer.addEventHandler(new osgViewer::StatsHandler);
-		viewer.setSceneData(loadedModel);
-		int windowX = 100; // 窗口左上角的 X 坐标
-		int windowY = 100; // 窗口左上角的 Y 坐标
-		int windowWidth = 800; // 窗口宽度
-		int windowHeight = 600; // 窗口高度
-		viewer.setUpViewInWindow(windowX, windowY, windowWidth, windowHeight);
-		return viewer.run();
-	}
-	else {
-		std::cout<<"Usage: [reductionRatio] [numIterations] [inputPath] [outputPath]"<<std::endl;
+    else {
+        std::cout<<"Usage: [reductionRatio] [numIterations] [inputPath] [outputPath]"<<std::endl;
 		std::cout<<"Usage: [inputPath]"<<std::endl;
 		return 1;
-	}
-    // string osgbFile = "E:\\work\\Data\\out\\zhibei1.osgb";
+    }
 
+    // 加载 osgb 文件
+    osg::ref_ptr<osg::Node> node = loadOSGBFile(inputPath);
+    if (!node) return 1;
+    
+    // std::string outputFolder = R"(E:\Data\mergeData\out)";
+
+    // Mesh mesh;
+    // mesh.extractTexturesFromNode(node, outputFolder);
+    // return 0;
+
+    // 获取 Geometry 对象
+    std::vector<osg::ref_ptr<osg::Geometry>> geometries;
+    collectGeometries(node.get(), geometries);
+
+    if (geometries.empty()) {
+        std::cerr << "No geometries found in the scene graph!" << std::endl;
+        return 1;
+    }
+
+    for (auto& geometry : geometries) {
+        if(getGeometryPrimitiveTypes(geometry)!=osg::PrimitiveSet::TRIANGLES)
+            continue;
+        MeshSimplifier meshSimplifier;
+        meshSimplifier.setDebugFlag(false);
+        meshSimplifier.loadMesh(geometry);
+        meshSimplifier.setLevels(128, 1, 4);
+        // meshSimplifier.setLevels(128, 1,4);
+        meshSimplifier.simplify(target_ratio,1.0f);
+        updateGeometry(geometry.get(), meshSimplifier.getVertices(), meshSimplifier.getIndices(), meshSimplifier.getVertexSize());
+    }
+
+    // 保存简化后的 osgb 文件
+    saveOSGBFile(node, outputPath);
+    return 0;
 }

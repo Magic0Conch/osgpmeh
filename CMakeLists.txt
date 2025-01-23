@@ -22,9 +22,8 @@ set(THIRDPARTY_OSG_ROOT_DIR "${THIRDPARTY_ROOT_DIR}/osg-3.6.4d")
 set(OSG_INC_PATH "${THIRDPARTY_OSG_ROOT_DIR}/include")
 set(OSGPMESH_INC_PATH "${OSGPMESH_SOURCES_DIR}/include")
 set(OSGPMESH_RESOURCES_ROOT_DIR "${OSGPMESH_ROOT_DIR}/Resources")
-
-file(GLOB_RECURSE OSG_DLL "${THIRDPARTY_OSG_ROOT_DIR}/bin/*.dll")
 file(GLOB_RECURSE OSG_LIB "${THIRDPARTY_OSG_ROOT_DIR}/lib/*.lib")
+
 add_subdirectory(Sources)
 add_subdirectory(ThirdParty)
 # message(${OSG_LIB})
